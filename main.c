@@ -9,6 +9,8 @@
 #include "netio/sock.h"
 #include "netio/listen.h"
 
+#include "db/connections.h"
+
 void* handle_client(void* client_fd);
 
 int yvo_server_socket;
@@ -57,6 +59,7 @@ int main() {
 
 void* handle_client(void* client_fd) {
 	printf("Handling client %d...\n", *(int*)client_fd);
+    yvo_insert_connection(*(int*)client_fd);
 	const char* msg = "Thanks for coming!\n";
 	while(true) {
 		char buffer[100] = {0};
