@@ -1,15 +1,18 @@
 #include <stdio.h>
 #include <sys/socket.h>
-#include <netinet/in.h>
+
 #include <stdbool.h>
 #include <pthread.h>
 #include <unistd.h>
 #include <stdlib.h>
 #include <signal.h>
+#include <libpq-fe.h>
+#include <string.h>
 #include "netio/sock.h"
 #include "netio/listen.h"
 
-#include "db/connections.h"
+#include "db/connect.h"
+#include "messages.h"
 
 void* handle_client(void* client_fd);
 
@@ -28,8 +31,20 @@ void handle_sigint(int sig) {
 	pthread_mutex_unlock(&client_mutex);
 }
 
+struct ClientThreadParams {
+    PGconn* conn;
+    int client_socket;
+};
+
 int main() {
 	setbuf(stdout, NULL);
+	setbuf(stderr, NULL);
+    PGconn* conn = yvo_connect_db();
+    if(conn == NULL) {
+        fprintf(stderr, "Failed to connect to database");
+        return -1;
+    }
+
 	yvo_server_socket = yvo_create_socket_ipv4_tcp(0x7F000001, 10000);
 	signal(SIGINT, handle_sigint);
 	yvo_listen(yvo_server_socket, 10);
@@ -40,6 +55,9 @@ int main() {
 			perror("Error occurred accepting connection on socket:");
 			return -1;
 		}
+        struct ClientThreadParams ctp;
+        ctp.conn = conn;
+        ctp.client_socket = client_socket;
 
 		printf("Successfully accepted connection on socket. Processing client...\n");
 
@@ -50,34 +68,44 @@ int main() {
 		last_client++;
 
 		// Moves client_socket into other thread
-		pthread_create(&thread, NULL, handle_client, &client_socket);
+        handle_client((void*)&ctp);
+		// pthread_create(&thread, NULL, handle_client, (void*)&ctp);
 	}
 
+    yvo_disconnect_db(conn);
 	return 0;
 
 }
 
-void* handle_client(void* client_fd) {
-	printf("Handling client %d...\n", *(int*)client_fd);
-    yvo_insert_connection(*(int*)client_fd);
-	const char* msg = "Thanks for coming!\n";
-	while(true) {
-		char buffer[100] = {0};
-		int ptr = 0;
-		int last_newline = 0;
-		recv(*(int*)client_fd, &buffer, sizeof(buffer), 0);
-		while(ptr< 100) {
-			if(buffer[ptr]=='M' && buffer[ptr + 1]=='S' && buffer[ptr + 2]=='G') {
-				int client_idx = (int)strtol(&buffer[last_newline], NULL, 10);
-				buffer[ptr] = '\n';
-				// pthread_mutex_lock(&client_mutex);
-				send(client_idx, buffer + 1 + last_newline, ptr, 0);
-				// pthread_mutex_unlock(&client_mutex);
-				last_newline = ptr;
-			}
-			ptr++;
-		}
+void* handle_client(void* in) {
+    struct ClientThreadParams* ctp = (struct ClientThreadParams*)in;
+    printf("Client %d connected.", ctp->client_socket);
+	// printf("Handling client %d...\n", *(int*)client_fd);
+    // yvo_insert_connection(*(int*)client_fd);
+	// const char* msg = "Thanks for coming!\n";
+    while(true) {
+        char buffer[200] = {0};
+        ssize_t dc_flag = recv(ctp->client_socket, &buffer, sizeof(buffer), 0);
+        if(dc_flag <= 0) {
+            printf("Client %d disconnected.", ctp->client_socket);
+            return NULL;
+        }
+        if(yvo_process_message(ctp->conn, buffer, strlen(buffer)) == -1) {
+            fprintf(stderr, "yvo_process_message returned -1");
+        }
+    }
 
-	}
+		// while(ptr< 100) {
+		// 	if(buffer[ptr]=='M' && buffer[ptr + 1]=='S' && buffer[ptr + 2]=='G') {
+		// 		int client_idx = (int)strtol(&buffer[last_newline], NULL, 10);
+		// 		buffer[ptr] = '\n';
+		// 		// pthread_mutex_lock(&client_mutex);
+		// 		send(client_idx, buffer + 1 + last_newline, ptr, 0);
+		// 		// pthread_mutex_unlock(&client_mutex);
+		// 		last_newline = ptr;
+		// 	}
+		// 	ptr++;
+		// }
+
 	return NULL;
 }
