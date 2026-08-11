@@ -13,6 +13,7 @@
 
 #include "db/connect.h"
 #include "messages.h"
+#include "client_thread_params.h"
 
 void* handle_client(void* client_fd);
 
@@ -30,11 +31,6 @@ void handle_sigint(int sig) {
 	}
 	pthread_mutex_unlock(&client_mutex);
 }
-
-struct ClientThreadParams {
-    PGconn* conn;
-    int client_socket;
-};
 
 int main() {
 	setbuf(stdout, NULL);
@@ -55,7 +51,7 @@ int main() {
 			perror("Error occurred accepting connection on socket:");
 			return -1;
 		}
-        struct ClientThreadParams ctp;
+        struct YVOClientThreadParams ctp;
         ctp.conn = conn;
         ctp.client_socket = client_socket;
 
@@ -78,7 +74,7 @@ int main() {
 }
 
 void* handle_client(void* in) {
-    struct ClientThreadParams* ctp = (struct ClientThreadParams*)in;
+    struct YVOClientThreadParams* ctp = (struct YVOClientThreadParams*)in;
     printf("Client %d connected.", ctp->client_socket);
 	// printf("Handling client %d...\n", *(int*)client_fd);
     // yvo_insert_connection(*(int*)client_fd);
@@ -90,8 +86,8 @@ void* handle_client(void* in) {
             printf("Client %d disconnected.", ctp->client_socket);
             return NULL;
         }
-        if(yvo_process_message(ctp->conn, buffer, strlen(buffer)) == -1) {
-            fprintf(stderr, "yvo_process_message returned -1");
+        if(yvo_process_message(ctp, buffer, strlen(buffer)) == -1) {
+            fprintf(stderr, "yvo_process_message returned -1\n");
         }
     }
 
