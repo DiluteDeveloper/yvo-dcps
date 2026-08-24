@@ -1,0 +1,4 @@
+-I/opt/homebrew/opt/libpq/include
+-g
+-O0
+
