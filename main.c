@@ -10,6 +10,32 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+// AES 256 bit encryption
+// 14 rounds for 256 bit keys
+// 32 bit keys
+
+// Returns a pointer to a heap allocated array of 7 integers being the
+// round constants of AES 256 encryption
+int32_t *yvo_aes_256_generate_7_round_constants() {
+    const int8_t NUM_ROUNDS = 7;
+
+    int32_t *constants = malloc(NUM_ROUNDS);
+
+    for (int8_t i = 0; i < NUM_ROUNDS; i++) {
+        if (i == 0) {
+            constants[i] = 1;
+            continue;
+        } else if (constants[i - 1] < 0x80) {
+            constants[i] = 2 * constants[i - 1];
+        } else {
+            constants[i] = ((2 * constants[i - 1]) ^ 0x11B) % 0x100;
+        }
+    }
+    return constants;
+}
+
+// void *yvo_aes_encrypt_256(void *data, char key[256]) { int8_t round = 0; }
+
 #define YVO_DB_QUERY_EXISTING_USER                                             \
     "select username from " YVO_DB_USER_TABLE " where username=\'%s\'"
 #define YVO_DB_QUERY_EXISTING_USER_PASS                                        \
@@ -94,12 +120,12 @@ int yvo_db_login_user(PGconn *conn, const char *username,
                       unsigned int username_len, const char *password,
                       unsigned int password_len) {
     // if(username_len > YVO_MAX_USERNAME_LENGTH) {
-    //         fprintf(stderr, "yvo_login_user failed: username is too long");
-    //         return -1;
+    //         fprintf(stderr, "yvo_login_user failed: username is too
+    //         long"); return -1;
     // }
     // if(password_len > YVO_MAX_PASSWORD_LENGTH) {
-    //         fprintf(stderr, "yvo_login_user failed: password is too long");
-    //         return -1;
+    //         fprintf(stderr, "yvo_login_user failed: password is too
+    //         long"); return -1;
     // }
     char *username_clean = malloc(username_len + 1);
     memcpy(username_clean, username, username_len);
@@ -128,8 +154,9 @@ int yvo_db_login_user(PGconn *conn, const char *username,
         return -1;
     }
     // printf("pass entered:%s\n", password);
-    // printf("actual pass:%s\n", PQgetvalue(query_existing_user_pass_result, 0,
-    // 0)); printf("actual pass:%d\n", strcmp(password,
+    // printf("actual pass:%s\n",
+    // PQgetvalue(query_existing_user_pass_result, 0, 0)); printf("actual
+    // pass:%d\n", strcmp(password,
     // PQgetvalue(query_existing_user_pass_result, 0, 0)) != 0); printf("p0
     // strlen: %zu, p1 strlen: %zu", strlen(password),
     // strlen(PQgetvalue(query_existing_user_pass_result, 0, 0)));
@@ -241,8 +268,8 @@ int yvo_process_command(struct YVOClientThreadParams *params, char *cmd,
         }
         unsigned int username_len = username_space_ptr - username_ptr;
         // if(username_len > YVO_MAX_USERNAME_LENGTH) {
-        //         fprintf(stderr, "yvo_process_command failed: malformed login
-        //         command: username is too long\n"); return -1;
+        //         fprintf(stderr, "yvo_process_command failed: malformed
+        //         login command: username is too long\n"); return -1;
         // }
         char *password_ptr = username_ptr + username_len + 1;
         char *password_end_ptr = strchr(password_ptr, '\n');
@@ -254,8 +281,8 @@ int yvo_process_command(struct YVOClientThreadParams *params, char *cmd,
         }
         unsigned int password_len = password_end_ptr - password_ptr;
         // if(password_len > YVO_MAX_PASSWORD_LENGTH) {
-        //         fprintf(stderr, "yvo_process_command failed: malformed login
-        //         command: password is too long\n"); return -1;
+        //         fprintf(stderr, "yvo_process_command failed: malformed
+        //         login command: password is too long\n"); return -1;
         // }
         if (yvo_db_login_user(params->conn, username_ptr, username_len,
                               password_ptr, password_len) == -1) {
@@ -290,7 +317,8 @@ int yvo_process_command(struct YVOClientThreadParams *params, char *cmd,
         unsigned int username_len = username_space_ptr - username_ptr;
         // if(username_len > YVO_MAX_USERNAME_LENGTH) {
         //         fprintf(stderr, "yvo_process_command failed: malformed
-        //         message command: send username is too long\n"); return -1;
+        //         message command: send username is too long\n"); return
+        //         -1;
         // }
         char *msg_ptr = username_ptr + username_len + 1;
         char *msg_end_ptr = strchr(msg_ptr, '\n');
@@ -302,13 +330,13 @@ int yvo_process_command(struct YVOClientThreadParams *params, char *cmd,
         }
         unsigned int msg_len = msg_end_ptr - msg_ptr;
         // if(msg_len > YVO_MAX_PASSWORD_LENGTH) {
-        //         fprintf(stderr, "yvo_process_command failed: malformed login
-        //         command: password is too long\n"); return -1;
+        //         fprintf(stderr, "yvo_process_command failed: malformed
+        //         login command: password is too long\n"); return -1;
         // }
         // if(yvo_login_user(params->conn, username_ptr, username_len,
         // password_ptr, password_len) == -1) {
-        //         fprintf(stderr, "yvo_process_command failed: yvo_login_user
-        //         failed\n"); return -1;
+        //         fprintf(stderr, "yvo_process_command failed:
+        //         yvo_login_user failed\n"); return -1;
         // }
         pthread_mutex_lock(&yvo_users_mutex);
         for (int i = 0; i < yvo_next_user; i++) {
@@ -366,6 +394,10 @@ void *handle_client(void *in) {
 }
 
 int main() {
+    int32_t *vals = yvo_aes_256_generate_7_round_constants();
+    for (int i = 0; i < 7; i++) {
+        printf("Round constant %d: %04X\n", i + 1, vals[i]);
+    }
     setbuf(stdout, NULL);
     setbuf(stderr, NULL);
     PGconn *conn = yvo_db_connect();
